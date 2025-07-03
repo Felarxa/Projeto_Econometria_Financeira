@@ -1,6 +1,6 @@
 import yfinance as yf
-from Scripts.functions import econometria_functions
-from Scripts.functions import finance_functions
+from functions import econometria_functions
+from functions import finance_functions
 from datetime import date, timedelta
 
 def main():
@@ -12,7 +12,7 @@ def main():
         'ELET3.SA',
         'PETR4.SA',
         'COGN3.SA',
-        'BBDC4.SA'
+        'AZZA3.SA'
     ]
 
     output = {}
@@ -33,12 +33,15 @@ def main():
     for ticker in tickers:
         fin = finance_functions(ticker.split('.')[0])
         df_balanco, df_dre, df_fluxo_caixa = fin.get_financial_dataframes()
+
         df_balanco = fin.format_df_balanco(df_balanco)
         df_dre = fin.format_df_dre(df_dre)
         df_fluxo_caixa = fin.format_df_fluxo(df_fluxo_caixa)
+
         dfs_list = [df_balanco, df_dre, df_fluxo_caixa]
         dfs_list = [fin.format_dataframe(df) for df in dfs_list]
         df_balanco, df_dre, df_fluxo_caixa = dfs_list
+
         val_acao = fin.Val_Acao(df_balanco, df_dre, df_fluxo_caixa)
         output[ticker] = [ticker]
         output[ticker].append(f'Valor calculado da ação: {val_acao}')
