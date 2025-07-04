@@ -54,25 +54,37 @@ def main():
         output[f'{ticker}.SA'] = [ticker]
         output[f'{ticker}.SA'].append(f'Valor calculado da ação: {val_acao}')
 
-
+    # Descartando tickers não calculados
     tickers_sa = list(output.keys())
     print(f'{len(tickers_sa)-1} Tickers com valuation calculado.')
-    try:
-        # Baixar dados do Yahoo Finance
-        data = general_functions.yf_download(tickers_sa, start_date, end_date)
 
-        # Verificar se há dados suficientes
-        if len(data) < 2:
-            print("Dados insuficientes para cálculo")
-            return
-        
+    # Baixar dados do Yahoo Finance
+    try:
+        data = general_functions.yf_download(tickers_sa, start_date, end_date)
     except Exception as e:
         print(f"Erro na API - {str(e)}")
 
+    # Filtra os dados para manter apenas delta positivo
+    weight_list = []
+    for column in data.columns:
+        try:
+            calc = float(output[column][1].split(': ',2)[1])
+            val = float(data[column].iloc[-1])
+            if val < calc:
+                weight_list.append(column)
+        except:
+            continue
 
+    data = data[weight_list]
+
+    # Verificar se há dados suficientes
+    if len(data) < 2:
+        print("Dados insuficientes para cálculo")
+        return
+    
     try:
         # Calcular pesos
-        missing_tickers = [ticker for ticker in tickers_sa if ticker not in data.columns]
+        missing_tickers = [ticker for ticker in weight_list if ticker not in data.columns]
         if missing_tickers:
             print(f"Os seguintes tickers não possuem dados - {', '.join(missing_tickers)}")
         weights = econometria_functions.minvariance(data, 0.005)
