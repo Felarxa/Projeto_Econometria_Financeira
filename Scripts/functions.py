@@ -5,6 +5,91 @@ import pandas as pd
 from lxml import etree
 import yfinance as yf
 
+class general_functions():
+     
+    @staticmethod
+    def include_sa(list):
+        i = 0
+        list_sa = []
+        for row in list:
+            list_sa.append(list[i]+'.SA')
+            i+=1
+        return list_sa
+    
+    @staticmethod
+    def get_tickers():
+        html = general_functions.fetch_html('https://www.dadosdemercado.com.br/acoes')
+        tables = general_functions.extract_tables(html, 'stocks')
+        df = [general_functions.parse_table(table) for table in tables]
+        df = df[0]
+        df.columns = df.iloc[0]
+        df = df[1:].reset_index(drop=True)
+        df_filtrado = df[df['Negócios'].str.len() > 8]
+        df_filtrado = df_filtrado.drop(df_filtrado.columns[1:], axis=1)
+        tickers_list = df_filtrado['Ticker'].tolist()
+        return tickers_list
+
+    @staticmethod
+    def fetch_html(url):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.text
+        except requests.exceptions.RequestException as e:
+            print(f"Erro ao acessar página: {e}")
+            return None
+
+    @staticmethod
+    def extract_tables(html, ids):
+        soup = BeautifulSoup(html, 'html.parser')
+        tables = soup.find_all(attrs={'id': (ids)})
+        return tables
+
+    @staticmethod
+    def parse_table(table):
+        rows = table.find_all('tr')
+        table_data = []
+
+        for row in rows:
+            headers = row.find_all('th')
+            if headers:
+                cols = [cell.text.strip() for cell in headers]
+            else:
+                cols = [cell.text.strip() for cell in row.find_all('td')]
+            table_data.append(cols)
+
+        return pd.DataFrame(table_data)
+    
+    @staticmethod
+    def get_info(tickers):
+        information = yf.Tickers(tickers)
+        return information
+    
+    @staticmethod
+    def get_selic(date):
+        try: 
+            url = f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados?formato=json&dataInicial={date}&dataFinal={date}'
+            resp = requests.get(url)
+            selic = float(resp.json()[0].get('valor')) + 0.1
+        except:
+            url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json'
+            resp = requests.get(url)
+            selic = float(resp.json()[0].get('valor')) + 0.1
+        return selic
+    
+    @staticmethod
+    def yf_download(tickers, start_date, end_date):
+        data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=False)['Close']
+        for column in data.columns:
+            if sum(data[column]) > 0:
+                pass
+            else:
+                data.drop(column, axis=1, inplace=True)
+
+        data.dropna(inplace=True)
+        return data
+
+    
 class econometria_functions():
 
     def construct_Q(returns):
@@ -75,43 +160,14 @@ class finance_functions():
 
     def __init__(self, ticker):
         self.ticker = ticker
+        self.url = f'https://www.dadosdemercado.com.br/acoes/{ticker}'
 
-    def fetch_html(self):
-        base_url = f"https://www.dadosdemercado.com.br/acoes/{self.ticker}"
-        try:
-            response = requests.get(base_url)
-            response.raise_for_status()
-            return response.text
-        except requests.exceptions.RequestException as e:
-            print(f"Erro ao acessar página de {self.ticker}: {e}")
-            return None
-
-    def extract_tables(self, html):
-        soup = BeautifulSoup(html, 'html.parser')
-        tables = soup.find_all(attrs={'id': ('balances', 'incomesYear', 'cashflows')})
-        return tables
-
-    def parse_table(self, table):
-        rows = table.find_all('tr')
-        table_data = []
-
-        for row in rows:
-            headers = row.find_all('th')
-            if headers:
-                cols = [cell.text.strip() for cell in headers]
-            else:
-                cols = [cell.text.strip() for cell in row.find_all('td')]
-            table_data.append(cols)
-
-        return pd.DataFrame(table_data)
-
-    def get_financial_dataframes(self):
-        html = self.fetch_html()
+    def get_financial_dataframes(self, html):
         if html is None:
             return []
 
-        tables = self.extract_tables(html)
-        return [self.parse_table(table) for table in tables]
+        tables = general_functions.extract_tables(html, ('balances', 'incomesYear', 'cashflows'))
+        return [general_functions.parse_table(table) for table in tables]
     
     def convert_value(self, value):
         multp = {'t': 1e12, 'b': 1e9, 'm': 1e6, 'mil': 1e3}
@@ -124,7 +180,7 @@ class finance_functions():
             x = float(x) * multp.get(y, 1)
             return int(x)
         
-        return value
+        return int(value)
 
     def format_dataframe(self, df):
         df.columns = df.iloc[0]
@@ -147,7 +203,7 @@ class finance_functions():
         df = df.drop(df.columns[3:], axis=1)
         return df
 
-    def Val_Acao(self, df0_1, df1_1, df2_1):
+    def Val_Acao(self, df0_1, df1_1, df2_1, info, selic):
         try:
             LL = df1_1[df1_1.columns[1]][10]
             Dep_A = df2_1[df2_1.columns[1]][1]
@@ -160,9 +216,7 @@ class finance_functions():
             Tx_Imp = abs(df1_1[df1_1.columns[1]][7]) / df1_1[df1_1.columns[1]][6]
             FCFF = EBIT * (1 - Tx_Imp) + Dep_A - CapEx - Cap_G
             ################################################
-            info = self.get_info()
             beta = info.get('beta')
-            selic = self.get_selic()
             Mkt_Price = 0.05
             ke = (beta * Mkt_Price) + (selic/100)
             Div_Liq = (df0_1[df0_1.columns[1]][14] + df0_1[df0_1.columns[1]][16]) - df0_1[df0_1.columns[1]][2]
@@ -190,34 +244,9 @@ class finance_functions():
             Val_Acao = Eq_Val/n_acoes
             return Val_Acao.round(2)
         except Exception as e:
-            print(f"Erro no cálculo de valuation da {self.ticker}- {str(e)}")
+            print(f"Erro no cálculo de valuation da {self.ticker} - {str(e)}")
         
         return 'null'
-    
-    def get_info(self):
-        variations = [
-            self.ticker,
-            f"{self.ticker}.SA"
-        ]
-        
-        for variation in variations:
-            try:
-                dat = yf.Ticker(variation)
-                info = dat.info
-                beta = info.get('beta')
-                if beta is not None:
-                    print(f"Info from {self.ticker} successfully retrieved")
-                    return info
-            except Exception:
-                continue
-
-        return None
-
-    def get_selic(self):
-        url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json'
-        resp = requests.get(url)
-        selic = float(resp.json()[0].get('valor')) + 0.1
-        return selic
     
     def sect_tx(self, info):
         setores = {
@@ -238,8 +267,11 @@ class finance_functions():
         return tx
     
     def get_n_acoes(self):
-        html = self.fetch_html()
+        html = general_functions.fetch_html(self.url)
         dom = etree.HTML(str(html))
-        n_acoes = dom.xpath('/html/body/div[3]/div[1]/div[7]/span[2]')[0].text
+        try:
+            n_acoes = dom.xpath('/html/body/div[3]/div[1]/div[7]/span[2]')[0].text
+        except:
+            n_acoes = dom.xpath('/html/body/div[3]/div[1]/div[6]/span[2]')[0].text
         n_acoes = int(''.join(n_acoes.split('.')))
         return n_acoes
